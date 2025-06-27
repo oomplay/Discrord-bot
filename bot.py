@@ -35,9 +35,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 DEFAULT_MODEL = "gemini-2.0-flash"
 
-SYSTEM_PROMPT = """คุณคือ AI ผู้ช่วยที่เป็นมิตรและมีประโยชน์ ตอบคำถามด้วยภาษาไทยเป็นหลัก 
-
-"""
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 
 CONVERSATION_HINT = "[หากต้องการคุยต่อ ให้ Reply ที่ข้อความนี้]"
 
@@ -109,7 +107,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 async def call_api(url, headers, payload, path, retries=2):
 
-    # ### FIX 2.1 ### - Ensure session is available before making a call
+    # Ensure session is available before making a call
 
     if not session or session.closed:
 
@@ -255,7 +253,7 @@ async def process_ai_request(model: str, history: list, interaction: discord.Int
 
         if interaction:
 
-            # ### FIX 1.1 ### - Handle the case where the interaction expires before we can defer.
+            # Handle the case where the interaction expires before we can defer.
 
             try:
 
@@ -323,7 +321,7 @@ async def process_ai_request(model: str, history: list, interaction: discord.Int
 
 # ────── Discord Events & Commands ──────
 
-# ### FIX 2.2 ### - Use setup_hook to create the session ONCE.
+# Use setup_hook to create the session ONCE.
 
 # This runs once before the bot logs in and is the correct place for setup.
 
@@ -467,7 +465,7 @@ async def ai_slash(interaction: discord.Interaction, prompt: str, model: str = N
 
     await process_ai_request(model=model, history=history, interaction=interaction)
 
-# ### FIX 2.3 ### - Removed the on_disconnect event.
+#  Removed the on_disconnect event.
 
 # It was causing the "Session is closed" error on reconnects.
 
