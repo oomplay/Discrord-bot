@@ -17,4 +17,6 @@ rm -f main.zip
 
 cd Discrord-bot-main || { echo "โฟลเดอร์ไม่พบ"; exit 1; }
 
-echo "ติดตั้งและดาวน์โหลดเสร็จสิ้นแล้ว!"
+
+
+
