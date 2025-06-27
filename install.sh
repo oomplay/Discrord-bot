@@ -15,7 +15,7 @@ unzip main.zip
 
 rm -f main.zip
 
-cd Discrord-bot-main || { echo "โฟลเดอร์ไม่พบ"; exit 1; }
+cd Discrord-bot-main 
 
 
 
