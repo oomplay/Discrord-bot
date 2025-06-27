@@ -1,20 +1,20 @@
 #!/bin/bash
 apt update
 
-apt install wget -y
+apt install -y wget unzip
 
-apt install unzip -y
-
-cd
+cd ~
 
 mkdir -p Discord_bot
 
 cd Discord_bot
 
-wget https://github.com/oomplay/Discrord-bot/archive/refs/heads/main.zip
+wget -O main.zip https://github.com/oomplay/Discrord-bot/archive/refs/heads/main.zip
 
 unzip main.zip
 
-rm -r main.zip
+rm -f main.zip
 
-cd Discrord-bot-main
+cd Discrord-bot-main || { echo "โฟลเดอร์ไม่พบ"; exit 1; }
+
+echo "ติดตั้งและดาวน์โหลดเสร็จสิ้นแล้ว!"
