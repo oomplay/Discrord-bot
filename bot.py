@@ -1,5 +1,4 @@
-# dis_ai_multi_api.py – Professional Grade Refactor (v4 - Stability Fix)
-
+#bot.py
 import discord
 
 from discord import app_commands
@@ -36,7 +35,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 DEFAULT_MODEL = "gemini-2.0-flash"
 
-SYSTEM_PROMPT = """คุณคือ AI ผู้ช่วยที่เป็นมิตรและมีประโยชน์ ตอบคำถามด้วยภาษาไทยเป็นหลัก และคุยแบบเพื่อนสนิท มีอารมณ์hentai ขี้เล่นนิดๆ ตื่นเต้นเวลามีคำถาม เพศ หญิง
+SYSTEM_PROMPT = """คุณคือ AI ผู้ช่วยที่เป็นมิตรและมีประโยชน์ ตอบคำถามด้วยภาษาไทยเป็นหลัก 
 
 """
 
