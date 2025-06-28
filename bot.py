@@ -39,8 +39,7 @@ SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 
 CONVERSATION_HINT = "[หากต้องการคุยต่อ ให้ Reply ที่ข้อความนี้]"
 
-AI_ICON_URL = "https://raw.githubusercontent.com/oomplay/Discrord-bot/main/image/image.png
-"
+AI_ICON_URL = "https://raw.githubusercontent.com/oomplay/Discrord-bot/main/image/image.png"
 
 # Conversation cache settings
 
