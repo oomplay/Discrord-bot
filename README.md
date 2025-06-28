@@ -6,8 +6,9 @@
 bash <(curl -Ls https://raw.githubusercontent.com/oomplay/Discrord-bot/refs/heads/main/install.sh)
 
 <h2> How to use </h2>
-/ai -to use commands.
-/ai prompt: -to ask ai.
-/ai model: to choose model.9tl
+<p>/ai -to use commands.</p>
+<p>/ai prompt: -to ask ai.</p>
+<p>/ai model: to choose model.9tl</p>
+<p>Replay to continue the conversation (Use a lot of token APIs!)</p>
 <h2>Example</h2>
-/ai model:💫 Gemini-2.5-flash prompt:Hi 
+<p>/ai model:💫 Gemini-2.5-flash prompt:Hi </p>
