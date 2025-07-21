@@ -67,7 +67,7 @@ MODELS_CONFIG = {
 
     "claude-sonnet-4":   {"provider": "ppq", "display_name": "🔥 Claude 4"},
     
-    "moonshotai/kimi-dev-72b:free":   {"provider": "openrouter", "display_name": "🍇Kimi Dev 72b"},
+    "google/gemma-3n-e4b-it:free":   {"provider": "openrouter", "display_name": "🍇Gemma 3n 4B"},
 
 }
 
