@@ -33,6 +33,8 @@ PPQ_API_KEY = os.getenv("PPQ_API_KEY")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+OPENROUTER_API_KEY =os.getenv("OPENROUTER_API_KEY")
+
 DEFAULT_MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
@@ -64,6 +66,8 @@ MODELS_CONFIG = {
     "claude-3.7-sonnet": {"provider": "ppq", "display_name": "👨‍💻 Claude 3.7"},
 
     "claude-sonnet-4":   {"provider": "ppq", "display_name": "🔥 Claude 4"},
+    
+    "moonshotai/kimi-dev-72b:free":   {"provider": "openrouter", "display_name": "🍇Kimi Dev 72b"},
 
 }
 
@@ -178,12 +182,15 @@ async def get_ai_response(history: list, model: str) -> str:
         formatted_history = [
 
             {"role": "model" if item["role"] == "assistant" else "user", "parts": [{"text": item["content"]}]}
-
             for item in history
 
         ]
 
         return await call_gemini_api(formatted_history, model)
+
+    elif provider == "openrouter":
+        
+        return await call_openrouter_api(formatted_history, model)
 
     else:
 
@@ -210,6 +217,18 @@ async def call_gemini_api(history: list, model: str):
     payload = {"contents": history}
 
     return await call_api(url, headers, payload, path=["candidates", 0, "content", "parts", 0, "text"])
+
+async def call_openrouter_api(history: list, model: str):
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json", "HTTP-Referer": "https://discord.com", "X-Title": "ฺDiscrord-bot"}
+
+    payload = {
+        "model": model, "messages": history, "stream": False}
+
+    return await call_api(url, headers, payload, path=["choices", 0, "message", "content"])
+
 
 # ────── Central Request Processor (Handles UI, Errors, and Cache) ──────
 
