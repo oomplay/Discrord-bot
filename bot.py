@@ -217,8 +217,7 @@ async def call_openrouter_api(history: list, model: str):
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json", "HTTP-Referer": "https://discord.com", "X-Title": "ฺDiscrord-bot"}
 
-    payload = {
-        "model": model, "messages": history, "stream": False}
+    payload = {"model": model, "messages": history, "stream": False}
 
     return await call_api(url, headers, payload, path=["choices", 0, "message", "content"])
 
