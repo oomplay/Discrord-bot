@@ -17,6 +17,8 @@ import time
 
 import datetime
 
+import json
+
 from collections import OrderedDict
 
 from dotenv import load_dotenv
@@ -51,25 +53,9 @@ MAX_CONVERSATION_CACHE = 200
 
 # ────── 🧬 Model Configuration (Single Source of Truth) ──────
 
-MODELS_CONFIG = {
-
-    "gemini-2.0-flash":  {"provider": "gemini", "display_name": "🌟 Gemini-2.0-flash -Default"},
-
-    "gemini-2.5-flash": {"provider": "gemini", "display_name": "💫 Gemini-2.5-flash"},
-
-    "gpt-4.1-nano": {"provider": "ppq", "display_name": "🧠 GPT-4.1 Nano"},
-
-    "gpt-4.1-mini": {"provider": "ppq", "display_name": "💡 GPT-4.1 Mini"},
-
-    "gpt-4.1":      {"provider": "ppq", "display_name": "💪 GPT-4.1"},
-
-    "claude-3.7-sonnet": {"provider": "ppq", "display_name": "👨‍💻 Claude 3.7"},
-
-    "claude-sonnet-4":   {"provider": "ppq", "display_name": "🔥 Claude 4"},
-    
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free":   {"provider": "openrouter", "display_name": "🐟 dolphin-mistral-24b[UNCEN]"},
-
-}
+# เปิดและโหลดข้อมูลจาก model.json
+with open('model.json', 'r', encoding='utf-8') as f:
+    MODELS_CONFIG = json.load(f)
 
 MODEL_ROUTE = {model_id: data["provider"] for model_id, data in MODELS_CONFIG.items()}
 
