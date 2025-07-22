@@ -54,9 +54,16 @@ MAX_CONVERSATION_CACHE = 200
 # ────── 🧬 Model Configuration (Single Source of Truth) ──────
 
 # เปิดและโหลดข้อมูลจาก model.json
-with open('model.json', 'r', encoding='utf-8') as f:
-    MODELS_CONFIG = json.load(f)
+try:
+    with open('model.json', 'r', encoding='utf-8') as f:
+        MODELS_CONFIG = json.load(f)
 
+except FileNotFoundError:
+    print("Error: ไม่พบไฟล์ 'model.json' ในไดเรกทอรีเดียวกัน")
+
+except json.JSONDecodeError:
+    print("Error: ไฟล์ 'model.json' มีรูปแบบไม่ถูกต้อง ไม่สามารถอ่านค่าได้")
+    
 MODEL_ROUTE = {model_id: data["provider"] for model_id, data in MODELS_CONFIG.items()}
 
 AI_MODEL_CHOICES = [
