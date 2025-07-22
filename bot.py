@@ -67,7 +67,7 @@ MODELS_CONFIG = {
 
     "claude-sonnet-4":   {"provider": "ppq", "display_name": "🔥 Claude 4"},
     
-    "google/gemma-3n-e4b-it:free":   {"provider": "openrouter", "display_name": "🍇Gemma 3n 4B"},
+    "cognitivecomputations/dolphin-mistral-24b-venice-edition:free":   {"provider": "openrouter", "display_name": "🐟 dolphin-mistral-24b[UNCEN]"},
 
 }
 
