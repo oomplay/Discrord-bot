@@ -490,10 +490,13 @@ if __name__ == "__main__":
 
         exit(1)
 
+    if not OLLAMA_API_KEY: logging.warning("⚠️ OLLAMA_API_KEY not set. Some models will not work.")
+
     if not PPQ_API_KEY: logging.warning("⚠️ PPQ_API_KEY not set. Some models will not work.")
 
-    if not GEMINI_API_KEY: logging.warning("⚠️ GEMINI_API_KEY not set. Some models will not work.")
+    if not OPENROUTER_API_KEY: logging.warning("⚠️ OPENROUTER_API_KEY not set. Some models will not work.")
 
+    if not GEMINI_API_KEY: logging.warning("⚠️ GEMINI_API_KEY not set. Some models will not work.")
         
 
     try:
