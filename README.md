@@ -3,8 +3,9 @@
 <h3>About this Bot</h3>
 <h3>API -> Bot.py -> Discord</h3>
 <h3>Download</h3>
+```
 bash <(curl -Ls https://raw.githubusercontent.com/oomplay/Discrord-bot/refs/heads/main/install.sh)
-  
+```
 <h2> Ollama API Config </h2>
 <p><a href="https://github.com/oomplay/ollama-api-proxy">Here</a> <- ....</p>
 
