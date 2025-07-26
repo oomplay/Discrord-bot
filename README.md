@@ -14,14 +14,14 @@ bash <(curl -Ls https://raw.githubusercontent.com/oomplay/Discrord-bot/refs/head
 <h2> How to use </h2>
 
 ```
-<p>/ai to use commands.</p>
-<p>/ai prompt: to ask ai.</p>
-<p>/ai model: to choose model.</p>
+/ai to use commands.
+/ai prompt: to ask ai.
+/ai model: to choose model.
 ```
 
 <p>Replay to continue the conversation (Use a lot of token APIs!)</p>
 <h2>Example</h2>
 
 ```
-<p>/ai model:💫 Gemini-2.5-flash prompt:Hi </p>
+/ai model:💫 Gemini-2.5-flash prompt:Hi.
 ```
