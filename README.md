@@ -6,7 +6,7 @@
 bash <(curl -Ls https://raw.githubusercontent.com/oomplay/Discrord-bot/refs/heads/main/install.sh)
   
 <h2> Ollama API Config </h2>
-<p><a href="https://github.com/oomplay/ollama-api-proxy">Here</a></p>
+<p><a href="https://github.com/oomplay/ollama-api-proxy">Here</a> <- ....</p>
 
 <h2> How to use </h2>
 <p>/ai to use commands.</p>
