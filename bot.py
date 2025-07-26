@@ -37,6 +37,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 OPENROUTER_API_KEY =os.getenv("OPENROUTER_API_KEY")
 
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
+
 DEFAULT_MODEL = "gemini-2.0-flash"
 
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
@@ -185,6 +187,9 @@ async def get_ai_response(history: list, model: str) -> str:
         
         return await call_openrouter_api(formatted_history, model)
 
+      elif provider == "ollama":
+        return await call_ollama_api(formatted_history, model)
+
     else:
 
         raise APIError(f"ไม่รู้จัก provider ของโมเดลนี้: {provider}")
@@ -220,6 +225,17 @@ async def call_openrouter_api(history: list, model: str):
     payload = {"model": model, "messages": history, "stream": False}
 
     return await call_api(url, headers, payload, path=["choices", 0, "message", "content"])
+
+async def call_ollama_api(history: list, model: str):
+
+    url = "https://ollama-api.kiwicraft.in/chat/completions"
+
+    headers = {"Authorization": f"Bearer {OLLAMA_API_KEY}", "Content-Type": "application/json"}
+
+    payload = {"model": model, "messages": history, "stream": False}
+
+    return await call_api(url, headers, payload, path=["choices", 0, "message", "content"])
+
 
 
 # ────── Central Request Processor (Handles UI, Errors, and Cache) ──────
