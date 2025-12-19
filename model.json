@@ -1,34 +1,67 @@
 {
-  "gemini-2.0-flash": {
-    "provider": "gemini",
-    "display_name": "🌟 Gemini-2.0-flash -Default"
+     "auto": {
+    "provider": "ppq",
+    "display_name": "🔥 Auto Model",
+    "vision": true
+  },
+  "mistralai/mistral-nemo": {
+    "provider": "ppq",
+    "display_name": "🫧 Mistral-Nemo -Default"
   },
   "gemini-2.5-flash": {
     "provider": "gemini",
     "display_name": "💫 Gemini-2.5-flash"
   },
-  "gpt-4.1-nano": {
+    "gpt-5-nano": {
     "provider": "ppq",
-    "display_name": "🧠 GPT-4.1 Nano"
+    "display_name": "🥶 GPT-5 Nano",
+    "vision": true
   },
-  "gpt-4.1-mini": {
+    "gpt-5.1-codex-mini": {
     "provider": "ppq",
-    "display_name": "💡 GPT-4.1 Mini"
+    "display_name": "🤖 GPT-5.1 Codex-Mini",
+    "vision": true
+  },
+  "gni-3-pro-preview": {
+    "provider": "ppq",
+    "display_name": "💡 Gemini 3 Pro Preview",
+    "vision": true
   },
   "gpt-4.1": {
     "provider": "ppq",
-    "display_name": "💪 GPT-4.1"
+    "display_name": "💪 GPT-4.1",
+     "vision": true
   },
-  "claude-3.7-sonnet": {
+  "claude-sonnet-4.5": {
     "provider": "ppq",
-    "display_name": "👨‍💻 Claude 3.7"
+    "display_name": "🔥 Claude Sonnet 4.5",
+    "vision": true
   },
-  "claude-sonnet-4": {
+  "claude-opus-4.1": {
     "provider": "ppq",
-    "display_name": "🔥 Claude 4"
+    "display_name": "🥶 Claude Opus 4.1",
+    "vision": true
   },
-  "cognitivecomputations/dolphin-mistral-24b-venice-edition:free": {
+  "grok-4": {
+    "provider": "ppq",
+    "display_name": "🤔 xAI: Grok 4",
+    "vision": true
+  },
+  "gpt-5.1": {
+    "provider": "ppq",
+    "display_name": "🍄 GPT-5.1",
+    "vision": true
+  },
+  "gpt-oss-120b": {
+    "provider": "ppq",
+    "display_name": "🌸 GPT-OSS-120B"
+  },
+  "gpt-oss-20b": {
+    "provider": "ppq",
+    "display_name": "🍁 GPT-OSS-20B"
+  },
+  "openai/gpt-oss-20b:free": {
     "provider": "openrouter",
-    "display_name": "🐟 dolphin-mistral-24b[UNCEN]"
+    "display_name": "🍁 GPT-OSS-20B [FREE]"
   }
 }
