@@ -1,4 +1,3 @@
-#bot.py
 import discord
 
 from discord import app_commands
@@ -19,506 +18,852 @@ import datetime
 
 import json
 
-from collections import OrderedDict
+import uuid
+
+import base64
+
+import aiosqlite
+
+from collections import deque
 
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# ────── ⚙️ 1. Configuration & Setup ──────
 
 load_dotenv()
 
-# ────── ⚙️ Config ──────
+# Logger Setup
+
+logging.basicConfig(
+
+    level=logging.INFO,
+
+    format="%(asctime)s [%(levelname)s] %(message)s",
+
+    datefmt="%Y-%m-%d %H:%M:%S"
+
+)
+
+# Keys
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
 
 PPQ_API_KEY = os.getenv("PPQ_API_KEY")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-OPENROUTER_API_KEY =os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY")
+# URLs
 
-DEFAULT_MODEL = "gemini-2.0-flash"
+PPQ_API_URL = os.getenv("PPQ_API_URL", "https://api.ppq.ai/chat/completions")
 
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
+OPENROUTER_API_URL = os.getenv("OPENROUTER_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
-CONVERSATION_HINT = "[หากต้องการคุยต่อ ให้ Reply ที่ข้อความนี้]"
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434/v1/chat/completions")
 
-AI_ICON_URL = "https://raw.githubusercontent.com/oomplay/Discrord-bot/main/image/image.png"
+GEMINI_BASE_URL = os.getenv("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/models")
 
-# Conversation cache settings
+AI_ICON_URL = os.getenv("AI_ICON_URL", "https://raw.githubusercontent.com/oomplay/Discrord-bot/main/image/image.png")
 
-CONVERSATION_CACHE_TTL = 7200
+# Settings
 
-MAX_CONVERSATION_CACHE = 200
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")
 
-# ────── 🧬 Model Configuration (Single Source of Truth) ──────
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "Magic Ai")
 
-# เปิดและโหลดข้อมูลจาก model.json
-try:
-    with open('model.json', 'r', encoding='utf-8') as f:
-        MODELS_CONFIG = json.load(f)
+CONVERSATION_HINT = "[Reply to continue the conversation.]"
 
-except FileNotFoundError:
-    print("Error: ไม่พบไฟล์ 'model.json' ในไดเรกทอรีเดียวกัน")
+DB_NAME = "chat_history.db"
 
-except json.JSONDecodeError:
-    print("Error: ไฟล์ 'model.json' มีรูปแบบไม่ถูกต้อง ไม่สามารถอ่านค่าได้")
-    
-MODEL_ROUTE = {model_id: data["provider"] for model_id, data in MODELS_CONFIG.items()}
+# Constants & Limits
 
-AI_MODEL_CHOICES = [
+MAX_CONTEXT_MESSAGES = 10
 
-    app_commands.Choice(name=data["display_name"], value=model_id)
+LOCK_TTL = 600
 
-    for model_id, data in MODELS_CONFIG.items()
+GLOBAL_RATE_LIMIT = 40       
 
-]
+STREAM_BASE_INTERVAL = 1.5   
 
-# ────── 🌐 Networking & Cache ──────
+# ────── 🧬 2. Dynamic Model Loading ──────
 
-session: aiohttp.ClientSession = None
+MODELS_CONFIG = {}
 
-SEM = asyncio.Semaphore(128)
+MODEL_ROUTE = {}
 
-conversation_cache: OrderedDict[int, tuple] = OrderedDict()
+LAST_MODEL_UPDATE = 0
 
-class APIError(Exception):
+def load_models_config():
 
-    pass
+    global MODELS_CONFIG, MODEL_ROUTE
 
-# ────── Discord client setup ──────
+    try:
 
-intents = discord.Intents.default()
+        with open('model.json', 'r', encoding='utf-8') as f:
 
-intents.message_content = True
+            MODELS_CONFIG = json.load(f)
 
-client = discord.Client(intents=intents)
+        MODEL_ROUTE = {k: v["provider"] for k, v in MODELS_CONFIG.items()}
 
-tree = app_commands.CommandTree(client)
+        logging.info(f"✅ Loaded {len(MODELS_CONFIG)} models.")
 
-# ────── Logging ──────
+    except Exception as e:
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+        logging.error(f"⚠️ Error loading model.json: {e}")
 
-# ────── Core Logic (API Callers & Dispatch) ──────
+        if not MODELS_CONFIG:
 
-async def call_api(url, headers, payload, path, retries=2):
+            MODELS_CONFIG = {DEFAULT_MODEL: {"provider": "gemini", "display_name": "Gemini Default", "vision": False}}
 
-    # Ensure session is available before making a call
+            MODEL_ROUTE = {DEFAULT_MODEL: "gemini"}
 
-    if not session or session.closed:
+load_models_config()
 
-        logging.error("❌ aiohttp.ClientSession is not available or closed.")
+if os.path.exists('model.json'):
 
-        raise APIError("เกิดข้อผิดพลาดในการเชื่อมต่อภายใน (Session Closed)")
+    LAST_MODEL_UPDATE = os.path.getmtime('model.json')
 
-    for attempt in range(retries + 1):
+# ────── 🧱 3. Database Layer ──────
 
-        try:
+async def init_db():
 
-            async with SEM, session.post(url, headers=headers, json=payload, timeout=90) as resp:
+    async with aiosqlite.connect(DB_NAME) as db:
 
-                if resp.status == 200:
+        await db.execute("PRAGMA journal_mode=WAL;")
 
-                    data = await resp.json()
+        await db.execute("""
 
-                    try:
+            CREATE TABLE IF NOT EXISTS conversations (
 
-                        for key in path: data = data[key]
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-                        return str(data)
+                message_id INTEGER UNIQUE, 
 
-                    except (KeyError, TypeError, IndexError) as e:
+                history TEXT,
 
-                        logging.error(f"❌ Error navigating API response path: {e}\nResponse: {await resp.text()}")
+                model TEXT,
 
-                        raise APIError("เกิดข้อผิดพลาดในการอ่านข้อมูลจาก AI: `path error`")
+                created_at REAL
 
-                else:
+            )
 
-                    error_text = await resp.text()
+        """)
 
-                    logging.warning(f"⚠️ API {resp.status}: {error_text}")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON conversations(created_at);")
 
-                    raise APIError(f"API Error {resp.status}: `{error_text[:1000]}`")
+        await db.commit()
 
-        except asyncio.TimeoutError:
+    logging.info("💾 Database initialized.")
 
-            logging.warning(f"🔁 API call timed out. Retry {attempt+1}/{retries}")
+async def save_to_db(msg_id, history, model):
 
-        except aiohttp.ClientError as e: # Catch session-related errors
+    async with aiosqlite.connect(DB_NAME) as db:
 
-            logging.warning(f"🔁 Network/Session error on attempt {attempt+1}/{retries}: {e}")
+        await db.execute(
 
-        except Exception as e:
+            "INSERT OR REPLACE INTO conversations (message_id, history, model, created_at) VALUES (?, ?, ?, ?)",
 
-            if isinstance(e, APIError): raise e
-
-            logging.warning(f"🔁 Retry {attempt+1}/{retries}: {e}")
-
-            await asyncio.sleep(0.5 * (attempt + 1))
-
-    raise APIError("AI ไม่ตอบสนองหลังจากพยายามเชื่อมต่อหลายครั้ง")
-
-async def get_ai_response(history: list, model: str) -> str:
-
-    provider = MODEL_ROUTE.get(model, "ppq")
-
-    formatted_history = history
-
-    if provider == "ppq":
-
-        return await call_ppq_api(formatted_history, model)
-
-    elif provider == "gemini":
-
-        formatted_history = [
-
-            {"role": "model" if item["role"] == "assistant" else "user", "parts": [{"text": item["content"]}]}
-            for item in history
-
-        ]
-
-        return await call_gemini_api(formatted_history, model)
-
-    elif provider == "openrouter":
-        
-        return await call_openrouter_api(formatted_history, model)
-
-      elif provider == "ollama":
-        return await call_ollama_api(formatted_history, model)
-
-    else:
-
-        raise APIError(f"ไม่รู้จัก provider ของโมเดลนี้: {provider}")
-
-async def call_ppq_api(history: list, model: str):
-
-    url = "https://api.ppq.ai/chat/completions"
-
-    headers = {"Authorization": f"Bearer {PPQ_API_KEY}", "Content-Type": "application/json"}
-
-    payload = {"model": model, "messages": history, "stream": False}
-
-    return await call_api(url, headers, payload, path=["choices", 0, "message", "content"])
-
-async def call_gemini_api(history: list, model: str):
-
-    base = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-
-    url = f"{base}?key={GEMINI_API_KEY}"
-
-    headers = {"Content-Type": "application/json"}
-
-    payload = {"contents": history}
-
-    return await call_api(url, headers, payload, path=["candidates", 0, "content", "parts", 0, "text"])
-
-async def call_openrouter_api(history: list, model: str):
-    url = "https://openrouter.ai/api/v1/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}", "Content-Type": "application/json", "HTTP-Referer": "https://discord.com", "X-Title": "ฺDiscrord-bot"}
-
-    payload = {"model": model, "messages": history, "stream": False}
-
-    return await call_api(url, headers, payload, path=["choices", 0, "message", "content"])
-
-async def call_ollama_api(history: list, model: str):
-
-    url = "https://ollama-api.kiwicraft.in/chat/completions"
-
-    headers = {"Authorization": f"Bearer {OLLAMA_API_KEY}", "Content-Type": "application/json"}
-
-    payload = {"model": model, "messages": history, "stream": False}
-
-    return await call_api(url, headers, payload, path=["choices", 0, "message", "content"])
-
-
-
-# ────── Central Request Processor (Handles UI, Errors, and Cache) ──────
-
-async def process_ai_request(model: str, history: list, interaction: discord.Interaction = None, message: discord.Message = None):
-
-    sent_message = None
-
-    reply_text = None
-
-    async def get_and_build_reply():
-
-        nonlocal reply_text
-
-        start_time = time.time()
-
-        reply_text = await get_ai_response(history, model)
-
-        history.append({"role": "assistant", "content": reply_text})
-
-        duration = time.time() - start_time
-
-        
-
-        embed = discord.Embed(
-
-            color=discord.Color.from_str("#4e8df7"),
-
-            description=reply_text[:4096],
-
-            timestamp=datetime.datetime.now()
+            (msg_id, json.dumps(history, ensure_ascii=False), model, time.time())
 
         )
 
-        embed.set_author(name=f"คำตอบจาก: {MODELS_CONFIG.get(model, {'display_name': model.title()})['display_name']}", icon_url=AI_ICON_URL)
+        await db.commit()
 
-        embed.set_footer(text=f"ประมวลผลใน {duration:.2f} วินาที • {CONVERSATION_HINT}")
+async def load_from_db(msg_id):
 
-        return embed
+    async with aiosqlite.connect(DB_NAME) as db:
+
+        async with db.execute("SELECT history, model FROM conversations WHERE message_id = ?", (msg_id,)) as cursor:
+
+            row = await cursor.fetchone()
+
+            if row: return json.loads(row[0]), row[1]
+
+    return None, None
+
+async def clean_old_db_records():
+
+    cutoff = time.time() - (365 * 24 * 3600) 
+
+    async with aiosqlite.connect(DB_NAME) as db:
+
+        await db.execute("DELETE FROM conversations WHERE created_at < ?", (cutoff,))
+
+        await db.commit()
+
+    logging.info("🧹 Cleaned old database records.")
+
+# ────── 🔒 4. Security & Rate Limiting ──────
+
+user_locks = {} 
+
+global_rate_buffer = deque()
+
+def check_global_rate_limit() -> bool:
+
+    now = time.time()
+
+    while global_rate_buffer and now - global_rate_buffer[0] > 60:
+
+        global_rate_buffer.popleft()
+
+    if len(global_rate_buffer) >= GLOBAL_RATE_LIMIT: return False
+
+    global_rate_buffer.append(now)
+
+    return True
+
+async def get_user_lock(user_id):
+
+    current_time = time.time()
+
+    if user_id not in user_locks:
+
+        user_locks[user_id] = {'lock': asyncio.Lock(), 'last_active': current_time}
+
+    else:
+
+        user_locks[user_id]['last_active'] = current_time
+
+    return user_locks[user_id]['lock']
+
+@tasks.loop(minutes=5)
+
+async def prune_user_locks():
+
+    now = time.time()
+
+    expired_users = [uid for uid, data in user_locks.items() if now - data['last_active'] > LOCK_TTL]
+
+    removed = 0
+
+    for uid in expired_users:
+
+        if uid in user_locks and not user_locks[uid]['lock'].locked():
+
+            del user_locks[uid]
+
+            removed += 1
+
+    if removed > 0: logging.info(f"🗑️ GC: Released {removed} locks.")
+
+# ────── 🧠 5. API Logic (Polished) ──────
+
+session: aiohttp.ClientSession = None
+
+class APIError(Exception): pass
+
+def sanitize_error(e: Exception) -> str:
+
+    err_id = uuid.uuid4().hex[:8]
+
+    logging.error(f"ERR-{err_id}: {str(e)}", exc_info=True)
+
+    return f"System malfunction (Ref: `{err_id}`) Please try again"
+
+def trim_history(history):
+
+    if len(history) <= MAX_CONTEXT_MESSAGES + 1: return history
+
+    sys = [m for m in history if m['role'] == 'system']
+
+    chat = [m for m in history if m['role'] != 'system']
+
+    return sys + chat[-MAX_CONTEXT_MESSAGES:]
+
+async def stream_openai_format(url, headers, payload):
+
+    payload["stream"] = True
+
+    async with session.post(url, headers=headers, json=payload, timeout=60) as resp:
+
+        if resp.status != 200: 
+
+            err_text = await resp.text()
+
+            raise APIError(f"API Error {resp.status}: {err_text[:200]}")
+
+            
+
+        async for line in resp.content:
+
+            line = line.decode('utf-8').strip()
+
+            if line.startswith("data: ") and line != "data: [DONE]":
+
+                try:
+
+                    data = json.loads(line[6:])
+
+                    chunk = data["choices"][0]["delta"].get("content", "")
+
+                    if chunk: yield chunk
+
+                except (json.JSONDecodeError, KeyError): continue
+
+async def standard_gemini_call(history, model, image_url=None):
+
+    system_prompt_text = next((m['content'] for m in history if m['role'] == 'system'), None)
+
+    gemini_contents = []
+
+    
+
+    for m in history:
+
+        if m['role'] != 'system':
+
+            gemini_contents.append({
+
+                "role": "model" if m["role"] == "assistant" else "user",
+
+                "parts": [{"text": str(m['content'])}]
+
+            })
+
+            
+
+    if image_url:
+
+        try:
+
+            async with session.get(image_url) as resp:
+
+                if resp.status == 200:
+
+                    img_data = await resp.read()
+
+                    b64_data = base64.b64encode(img_data).decode('utf-8')
+
+                    mime_type = resp.headers.get("Content-Type", "image/jpeg")
+
+                    if gemini_contents and gemini_contents[-1]["role"] == "user":
+
+                        gemini_contents[-1]["parts"].append({
+
+                            "inline_data": {"mime_type": mime_type, "data": b64_data}
+
+                        })
+
+        except Exception as e:
+
+            logging.error(f"❌ Gemini Image Error: {e}")
+
+    payload = {"contents": gemini_contents}
+
+    if system_prompt_text:
+
+        payload["systemInstruction"] = {"parts": [{"text": system_prompt_text}]}
+
+    
+
+    url = f"{GEMINI_BASE_URL}/{model}:generateContent?key={GEMINI_API_KEY}"
+
+    async with session.post(url, json=payload, timeout=90) as resp:
+
+        if resp.status != 200: 
+
+            raise APIError(f"Gemini Error {resp.status}: {await resp.text()}")
+
+        data = await resp.json()
+
+        try: 
+
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+
+        except (KeyError, IndexError):
+
+            if "promptFeedback" in data: raise APIError("The content has been blocked by AI Safety Filter")
+
+            raise APIError("Gemini did not reply.")
+
+# ────── 🚀 6. Core Processor (Final Flow) ──────
+
+async def process_ai_request(model: str, history: list, interaction: discord.Interaction = None, message: discord.Message = None, user_id: int = None, image_url: str = None):
+
+    
+
+    # 1. ACKNOWLEDGE IMMEDIATELY
+
+    target_msg = None
 
     try:
 
         if interaction:
 
-            # Handle the case where the interaction expires before we can defer.
-
-            try:
+            if not interaction.response.is_done():
 
                 await interaction.response.defer(thinking=True)
 
-            except discord.errors.NotFound:
-
-                logging.warning(f"Interaction {interaction.id} expired before defer(). Aborting request.")
-
-                # We can't send a message back because the interaction is dead. Just stop.
-
-                return
-
-            embed = await get_and_build_reply()
-
-            await interaction.edit_original_response(embed=embed, content=None)
-
-            sent_message = await interaction.original_response()
-
-        
-
         elif message:
 
-            async with message.channel.typing():
-
-                embed = await get_and_build_reply()
-
-            sent_message = await message.reply(embed=embed, mention_author=False) # Changed to reply for better context
-
-    except APIError as e:
-
-        logging.error(f"API Error during request processing: {e}")
-
-        error_embed = discord.Embed(title="เกิดข้อผิดพลาด", description=str(e), color=discord.Color.red())
-
-        if interaction and not interaction.is_expired():
-
-            await interaction.edit_original_response(embed=error_embed, content=None)
-
-        elif message:
-
-            await message.channel.send(embed=error_embed)
+            await message.channel.typing()
 
     except Exception as e:
 
-        logging.critical(f"An unexpected error occurred: {e}", exc_info=True)
+        logging.warning(f"Failed to defer: {e}")
 
-        error_embed = discord.Embed(title="เกิดข้อผิดพลาดที่ไม่คาดคิด", description="เกิดปัญหาบางอย่างในระบบ โปรดลองอีกครั้ง", color=discord.Color.dark_red())
+        return
 
-        if interaction and not interaction.is_expired():
+    # 2. Check Limits
 
-            await interaction.edit_original_response(embed=error_embed, content=None)
+    if not check_global_rate_limit():
+
+        msg = "⚠️ Server Busy: Please wait. (Global Rate Limit)"
+
+        if interaction: await interaction.followup.send(msg, ephemeral=True)
+
+        elif message: await message.reply(msg, delete_after=5)
+
+        return
+
+    lock = await get_user_lock(user_id)
+
+    if lock.locked():
+
+        msg = "⏳ Please wait for the previous message to finish processing."
+
+        if interaction: await interaction.followup.send(msg, ephemeral=True)
+
+        elif message: await message.reply(msg, delete_after=5)
+
+        return
+
+    async with lock:
+
+        start_time = time.time()
+
+        optimized_history = trim_history(history)
+
+        
+
+        # 3. Model & Vision Config
+
+        if model not in MODELS_CONFIG: model = DEFAULT_MODEL
+
+        model_config = MODELS_CONFIG.get(model, {})
+
+        provider = MODEL_ROUTE.get(model, "gemini")
+
+        supports_vision = model_config.get("vision", False)
+
+        
+
+        if image_url and not supports_vision:
+
+             warn = f"⚠️ Model `{model}` Images are not supported (only text replies will be sent)"
+
+             if interaction: await interaction.followup.send(warn, ephemeral=True)
+
+             elif message: await message.channel.send(warn, delete_after=5)
+
+             image_url = None 
+
+        full_response = ""
+
+        model_name = model_config.get('display_name', model)
+
+        
+
+        embed = discord.Embed(description="*Thinking...* 💭", color=discord.Color.from_str("#4e8df7"))
+
+        embed.set_author(name=f"🤖 {model_name}", icon_url=AI_ICON_URL)
+
+        if image_url: embed.set_thumbnail(url=image_url)
+
+        
+
+        if interaction:
+
+            target_msg = await interaction.followup.send(embed=embed, wait=True)
 
         elif message:
 
-            await message.channel.send(embed=error_embed)
+            target_msg = await message.reply(embed=embed, mention_author=False)
 
-    if sent_message and reply_text is not None:
+        try:
 
-        conversation_cache[sent_message.id] = ({'history': history, 'model': model}, time.time())
+            if provider in ["openrouter", "ollama", "ppq"]:
 
-        if len(conversation_cache) > MAX_CONVERSATION_CACHE:
+                # ✨ POLISH: Headers Update
 
-            conversation_cache.popitem(last=False)
+                url = ""
 
-# ────── Discord Events & Commands ──────
+                headers = {}
 
-# Use setup_hook to create the session ONCE.
+                if provider == "openrouter": 
 
-# This runs once before the bot logs in and is the correct place for setup.
+                    url = OPENROUTER_API_URL
 
-@client.event
+                    headers = {
 
-async def setup_hook():
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}", 
 
-    global session
+                        "HTTP-Referer": "https://discord.com",
 
-    session = aiohttp.ClientSession()
+                        "X-Title": "Discord AI Bot"
 
-    logging.info("✅ aiohttp session created successfully.")
+                    }
 
-@client.event
+                    if user_id: headers["X-User-ID"] = str(user_id)
 
-async def on_ready():
+                elif provider == "ppq": 
 
-    # Session creation is now in setup_hook.
+                    url = PPQ_API_URL
 
-    await tree.sync()
+                    headers = {"Authorization": f"Bearer {PPQ_API_KEY}"}
 
-    if not clear_expired_conversations.is_running():
+                elif provider == "ollama": 
 
-        clear_expired_conversations.start()
+                    url = OLLAMA_API_URL
 
-    logging.info(f"✅ Logged in as {client.user}")
+                    headers = {"Authorization": f"Bearer {OLLAMA_API_KEY}"}
 
-    logging.info(f"🌴 Synced {len(await tree.fetch_commands())} application commands.")
+                
 
-    logging.info(f"🧹 Cache clearing task started. Checking every 30 minutes.")
+                # ✨ POLISH: Safe Content & Default Prompt
 
-@tasks.loop(minutes=30)
+                messages_payload = list(optimized_history)
 
-async def clear_expired_conversations():
+                if image_url:
 
-    now = time.time()
+                    last_msg = messages_payload[-1]
 
-    expired_keys = [k for k, v in conversation_cache.items() if now - v[1] > CONVERSATION_CACHE_TTL]
+                    if last_msg["role"] == "user":
 
-    if expired_keys:
+                        vision_msg = last_msg.copy() # Safe Copy
 
-        for k in expired_keys: del conversation_cache[k]
+                        
 
-        logging.info(f"🧹 Cleared {len(expired_keys)} expired conversation(s) from cache.")
+                        raw_content = vision_msg.get("content", "")
+
+                        if not isinstance(raw_content, str): raw_content = str(raw_content)
+
+                        if not raw_content.strip(): raw_content = "Describe this image." # Default Prompt
+
+                        
+
+                        vision_msg["content"] = [
+
+                            {"type": "text", "text": raw_content},
+
+                            {"type": "image_url", "image_url": {"url": image_url}}
+
+                        ]
+
+                        messages_payload[-1] = vision_msg
+
+                
+
+                payload = {"model": model, "messages": messages_payload, "stream": True}
+
+                last_update = time.time()
+
+                current_interval = STREAM_BASE_INTERVAL 
+
+                async for chunk in stream_openai_format(url, headers, payload):
+
+                    full_response += chunk
+
+                    if len(full_response) > 2000: current_interval = 3.0
+
+                    elif len(full_response) > 1000: current_interval = 2.0
+
+                    
+
+                    if time.time() - last_update > current_interval:
+
+                        embed.description = full_response + " ▌"
+
+                        if len(embed.description) > 4000: embed.description = embed.description[:4000] + "..."
+
+                        await target_msg.edit(embed=embed)
+
+                        last_update = time.time()
+
+                        
+
+            elif provider == "gemini":
+
+                full_response = await standard_gemini_call(optimized_history, model, image_url)
+
+            else:
+
+                raise APIError("Unknown Provider")
+
+            # Finalize
+
+            duration = time.time() - start_time
+
+            embed.description = full_response[:4096]
+
+            embed.set_footer(text=f"⏱️ {duration:.2f}s • {CONVERSATION_HINT}")
+
+            await target_msg.edit(embed=embed)
+
+            # Save
+
+            new_history = list(history)
+
+            if image_url: new_history[-1]["content"] = f"{new_history[-1]['content']} [แนบรูปภาพ]"
+
+            new_history.append({"role": "assistant", "content": full_response})
+
+            await save_to_db(target_msg.id, new_history, model)
+
+        except Exception as e:
+
+            safe_err = sanitize_error(e)
+
+            embed.color = discord.Color.red()
+
+            embed.title = "❌ An error occurred."
+
+            embed.description = safe_err
+
+            if target_msg: await target_msg.edit(embed=embed)
+
+# ────── 🕵️ 7. Recovery ──────
+
+async def recover_history(message: discord.Message):
+
+    if not message.reference: return None, None
+
+    ref_id = message.reference.message_id
+
+    
+
+    history, model = await load_from_db(ref_id)
+
+    if history:
+
+        logging.info(f"💾 DB Hit: {ref_id}")
+
+        return history, model
+
+    logging.info(f"⛏️ DB Miss: Crawling chain from {ref_id}")
+
+    chain = []
+
+    curr = message.reference.resolved
+
+    if not curr:
+
+        try: curr = await message.channel.fetch_message(ref_id)
+
+        except: return None, None
+
+    
+
+    if curr.author.id != client.user.id: return None, None
+
+    loop_count = 0
+
+    detected_model = DEFAULT_MODEL
+
+    
+
+    while curr and loop_count < 20:
+
+        if curr.author.id == client.user.id:
+
+            role = "assistant"
+
+            if curr.embeds:
+
+                content = curr.embeds[0].description
+
+                if loop_count == 0 and curr.embeds[0].author.name:
+
+                    clean_name = curr.embeds[0].author.name.replace("🤖 ", "").strip()
+
+                    for mid, data in MODELS_CONFIG.items():
+
+                        if data["display_name"] == clean_name: detected_model = mid
+
+            else: content = curr.content
+
+        else:
+
+            role = "user"
+
+            content = curr.content
+
+            
+
+        if content: chain.insert(0, {"role": role, "content": content})
+
+        
+
+        if curr.reference:
+
+            try: curr = curr.reference.resolved or await curr.channel.fetch_message(curr.reference.message_id)
+
+            except: break
+
+        else: break
+
+        loop_count += 1
+
+    
+
+    if not chain: return None, None
+
+    return [{"role": "system", "content": SYSTEM_PROMPT}] + chain, detected_model
+
+# ────── 🔌 8. Life Cycle Management ──────
+
+class BotClient(discord.Client):
+
+    async def setup_hook(self):
+
+        global session
+
+        session = aiohttp.ClientSession()
+
+        await init_db()
+
+        await self.tree.sync()
+
+        clean_db_task.start()
+
+        prune_user_locks.start()
+
+        auto_reload_models_task.start()
+
+        logging.info(f"✅ Bot Online: {self.user}")
+
+    async def close(self):
+
+        logging.info("🛑 Shutting down...")
+
+        if session: await session.close()
+
+        await super().close()
+
+intents = discord.Intents.default()
+
+intents.message_content = True
+
+client = BotClient(intents=intents)
+
+tree = app_commands.CommandTree(client)
+
+client.tree = tree
+
+@tasks.loop(hours=24)
+
+async def clean_db_task(): await clean_old_db_records()
+
+@tasks.loop(seconds=30)
+
+async def auto_reload_models_task():
+
+    global LAST_MODEL_UPDATE
+
+    if not os.path.exists('model.json'): return
+
+    try:
+
+        current_mtime = os.path.getmtime('model.json')
+
+        if current_mtime > LAST_MODEL_UPDATE:
+
+            logging.info("♻️ Config changed. Reloading...")
+
+            load_models_config()
+
+            LAST_MODEL_UPDATE = current_mtime
+
+    except Exception: pass
 
 @client.event
 
 async def on_message(msg: discord.Message):
 
-    if msg.author.bot or not msg.content:
+    if msg.author.bot or not msg.content: return
 
-        return
+    
 
-    # Case 1: Continuing a conversation via Reply
+    image_url = None
 
-    if msg.reference and msg.reference.resolved and msg.reference.resolved.author == client.user:
+    if msg.attachments:
 
-        ref_id = msg.reference.message_id
+        valid = {'.jpg', '.jpeg', '.png', '.webp', '.gif'}
 
-        if ref_id in conversation_cache:
+        for att in msg.attachments:
 
-            logging.info(f"💬 Continuing conversation from message {ref_id}")
+            if os.path.splitext(att.filename)[1].lower() in valid:
 
-            cached_data, _ = conversation_cache[ref_id]
+                image_url = att.url
 
-            history = cached_data['history']
+                break
 
-            model = cached_data['model']
+    if msg.reference:
+
+        history, model = await recover_history(msg)
+
+        if history:
 
             history.append({"role": "user", "content": msg.content})
 
-            
+            await process_ai_request(model, history, message=msg, user_id=msg.author.id, image_url=image_url)
 
-            await process_ai_request(model=model, history=history, message=msg)
+async def model_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
 
-            return
+    return [
 
-        else:
+        app_commands.Choice(name=data["display_name"], value=model_id)
 
-            logging.info(f"Tried to reply to an old/uncached message {ref_id}.")
+        for model_id, data in MODELS_CONFIG.items()
 
-            await msg.reply("😕 ขออภัย บทสนทนานี้หมดอายุแล้วหรือไม่พบในระบบ\nกรุณาเริ่มต้นใหม่ด้วย `/ai` หรือ `!ai` ครับ", mention_author=False)
+        if current.lower() in data["display_name"].lower()
 
-            return
+    ][:25]
 
-    # Case 2: Starting a new conversation with !ai
+@tree.command(name="ai", description="Start talking to AI.")
 
-    elif msg.content.startswith("!ai"):
+@app_commands.describe(prompt="Message", model="Select a model", image="Attach image (Optional)")
 
-        args = msg.content[len("!ai"):].strip()
+@app_commands.autocomplete(model=model_autocomplete)
 
-        if not args:
-
-            await msg.channel.send("💬 ใช้ `!ai <ข้อความ>` หรือ `!ai m:<model> <ข้อความ>`")
-
-            return
-
-        
-
-        prompt: str
-
-        model: str
-
-        if args.startswith("m:"):
-
-            parts = args.split(" ", 1)
-
-            model_str = parts[0][2:].strip()
-
-            if len(parts) != 2 or not model_str or not parts[1].strip() or model_str not in MODELS_CONFIG:
-
-                await msg.channel.send(f"❌ ใช้ `!ai m:<model> <ข้อความ>` และตรวจสอบว่า model (`{model_str}`) ถูกต้อง")
-
-                return
-
-            model, prompt = model_str, parts[1].strip()
-
-        else:
-
-            model, prompt = DEFAULT_MODEL, args
-
-        
-
-        history = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
-
-        await process_ai_request(model=model, history=history, message=msg)
-
-        return
-
-@tree.command(name="ai", description="ถาม AI (สามารถ Reply เพื่อคุยต่อได้)")
-
-@app_commands.describe(prompt="ข้อความที่ต้องการถาม AI", model="เลือกรุ่นโมเดล")
-
-@app_commands.choices(model=AI_MODEL_CHOICES)
-
-async def ai_slash(interaction: discord.Interaction, prompt: str, model: str = None):
+async def ai_slash(interaction: discord.Interaction, prompt: str, model: str = None, image: discord.Attachment = None):
 
     model = model or DEFAULT_MODEL
 
+    if model not in MODELS_CONFIG: model = DEFAULT_MODEL
+
+    
+
+    image_url = None
+
+    if image and os.path.splitext(image.filename)[1].lower() in {'.jpg', '.jpeg', '.png', '.webp', '.gif'}:
+
+        image_url = image.url
+
+        
+
     history = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
 
-    await process_ai_request(model=model, history=history, interaction=interaction)
+    await process_ai_request(model, history, interaction=interaction, user_id=interaction.user.id, image_url=image_url)
 
-#  Removed the on_disconnect event.
+@tree.command(name="reload", description="[Admin] Reload Config")
 
-# It was causing the "Session is closed" error on reconnects.
+@app_commands.default_permissions(administrator=True)
 
-# The session created in setup_hook will be properly closed by discord.py on shutdown.
+async def reload_cmd(interaction: discord.Interaction):
+
+    load_models_config()
+
+    await interaction.response.send_message("✅ Config Reloaded.", ephemeral=True)
 
 if __name__ == "__main__":
 
-    if not DISCORD_TOKEN:
+    if not DISCORD_TOKEN: exit("❌ TOKEN missing")
 
-        logging.error("❌ DISCORD_TOKEN environment variable not set!")
+    try: client.run(DISCORD_TOKEN)
 
-        exit(1)
-
-    if not OLLAMA_API_KEY: logging.warning("⚠️ OLLAMA_API_KEY not set. Some models will not work.")
-
-    if not PPQ_API_KEY: logging.warning("⚠️ PPQ_API_KEY not set. Some models will not work.")
-
-    if not OPENROUTER_API_KEY: logging.warning("⚠️ OPENROUTER_API_KEY not set. Some models will not work.")
-
-    if not GEMINI_API_KEY: logging.warning("⚠️ GEMINI_API_KEY not set. Some models will not work.")
-        
-
-    try:
-
-        client.run(DISCORD_TOKEN, log_handler=None)
-
-    except Exception as e:
-
-        logging.error(f"❌ Failed to start bot: {e}", exc_info=True)
+    except KeyboardInterrupt: pass
